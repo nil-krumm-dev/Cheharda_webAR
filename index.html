@@ -56,13 +56,15 @@
       /* Выше стартового экрана: иначе ошибки запуска не видно под ним. */
       z-index: 40;
       box-sizing: border-box;
-      padding: 10px 14px;
+      padding: 6px 12px;
       background: rgba(0, 0, 0, 0.75);
       color: #8f8;
       font-family: monospace;
       font-size: 12px;
       line-height: 1.45;
-      max-height: 45%;
+      /* Ровно две строки: журнал прокручивается к последней записи,
+         поэтому виден всегда свежий вывод. */
+      max-height: calc(2 * 1.45em + 12px);
       overflow-y: auto;
       white-space: pre-wrap;
       word-break: break-word;
