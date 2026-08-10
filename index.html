@@ -53,7 +53,8 @@
       left: 0;
       bottom: 0;
       width: 100%;
-      z-index: 20;
+      /* Выше стартового экрана: иначе ошибки запуска не видно под ним. */
+      z-index: 40;
       box-sizing: border-box;
       padding: 10px 14px;
       background: rgba(0, 0, 0, 0.75);
@@ -153,7 +154,23 @@
     if (!window.isSecureContext) {
       log("ВНИМАНИЕ: небезопасный контекст — камера будет заблокирована", true);
     }
+
+    // Если модульный скрипт не стартует (старый Safari, заблокированный CDN),
+    // страница выглядит просто мёртвой. Сообщаем об этом явно.
+    window.__moduleReady = false;
+    setTimeout(() => {
+      if (!window.__moduleReady) {
+        log("МОДУЛЬ НЕ ВЫПОЛНИЛСЯ — кнопка работать не будет", true);
+        log("частая причина: браузер не поддерживает карты импортов (Safari младше 16.4)", true);
+        log("браузер: " + navigator.userAgent, true);
+      }
+    }, 7000);
   </script>
+
+  <!-- Safari понимает карты импортов только с 16.4. На более старых iOS модуль
+       не разрешит имя "three" и скрипт молча не выполнится — полифил это чинит.
+       В браузерах со штатной поддержкой он ничего не делает. -->
+  <script async src="https://cdn.jsdelivr.net/npm/es-module-shims@1.10.0/dist/es-module-shims.wasm.js"></script>
 
   <!-- Карта импортов обязана идти ДО модульных скриптов: mindar внутри себя
        делает import from "three", и без неё браузер такой идентификатор не разрешит. -->
@@ -176,6 +193,7 @@
     const log = window.log;
     const hint = document.getElementById("hint");
 
+    window.__moduleReady = true;
     log("библиотеки загружены (three + mindar)");
 
     const mindarThree = new MindARThree({
