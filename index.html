@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>WebAR — Чехарда</title>
+  <style>
+    /* Фон обязан оставаться прозрачным: MindAR кладёт <video> с отрицательным
+       z-index, и любая непрозрачная заливка body закроет собой кадр камеры. */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: -apple-system, Helvetica, Arial, sans-serif;
+    }
+
+    #ar-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #hint {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      z-index: 10;
+      display: flex;
+      justify-content: center;
+      padding-top: 24px;
+      pointer-events: none;
+    }
+
+    #hint span {
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 20px;
+      font-size: 15px;
+      text-align: center;
+      transition: opacity 0.3s ease;
+    }
+
+    #status {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      z-index: 20;
+      box-sizing: border-box;
+      padding: 10px 14px;
+      background: rgba(0, 0, 0, 0.75);
+      color: #8f8;
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      max-height: 45%;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    #status .err { color: #f77; }
+  </style>
+</head>
+<body>
+  <div id="ar-container"></div>
+  <div id="hint"><span>Наведите камеру на открытку</span></div>
+  <div id="status"></div>
+
+  <script>
+    // Диагностика должна работать даже если модуль ниже не загрузился вовсе.
+    const statusEl = document.getElementById("status");
+
+    function log(message, isError) {
+      const line = document.createElement("div");
+      if (isError) line.className = "err";
+      line.textContent = message;
+      statusEl.appendChild(line);
+      statusEl.scrollTop = statusEl.scrollHeight;
+    }
+
+    window.log = log;
+
+    window.addEventListener("error", (e) => {
+      log("ОШИБКА: " + (e.message || e.error), true);
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      log("ОШИБКА (promise): " + (e.reason && e.reason.message ? e.reason.message : e.reason), true);
+    });
+
+    log("страница загружена");
+    if (!window.isSecureContext) {
+      log("ВНИМАНИЕ: небезопасный контекст — камера будет заблокирована", true);
+    }
+  </script>
+
+  <!-- Карта импортов обязана идти ДО модульных скриптов: mindar внутри себя
+       делает import from "three", и без неё браузер такой идентификатор не разрешит. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+    import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+    import { MindARThree } from "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js";
+
+    const log = window.log;
+    const hint = document.getElementById("hint");
+
+    log("библиотеки загружены (three + mindar)");
+
+    const mindarThree = new MindARThree({
+      container: document.getElementById("ar-container"),
+      imageTargetSrc: "./assets/targets.mind",
+      // Встроенные оверлеи MindAR затемняют кадр; своя подсказка нагляднее.
+      uiLoading: "no",
+      uiScanning: "no",
+      uiError: "no",
+    });
+
+    const { renderer, scene, camera } = mindarThree;
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    directionalLight.position.set(0.5, 1, 0.5);
+    scene.add(ambientLight, directionalLight);
+
+    const anchor = mindarThree.addAnchor(0);
+
+    anchor.onTargetFound = () => {
+      log("ТАРГЕТ НАЙДЕН");
+      hint.style.opacity = "0";
+    };
+    anchor.onTargetLost = () => {
+      log("таргет потерян");
+      hint.style.opacity = "1";
+    };
+
+    // Модель грузим параллельно со стартом AR: ждать её до запуска камеры незачем.
+    const modelFile = "./assets/model.glb";
+
+    log("загружаю " + modelFile.replace("./assets/", "") + " ...");
+
+    // Геометрия сжата Draco — без декодера GLTFLoader её не распакует.
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/");
+
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.setDRACOLoader(dracoLoader);
+    // Модель может быть сжата EXT_meshopt_compression — без этого декодера
+    // GLTFLoader такой файл не откроет.
+    gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+
+    gltfLoader.load(
+      modelFile,
+      (gltf) => {
+        const model = gltf.scene;
+
+        // Автоподбор масштаба: вписываем модель в 1 единицу — столько занимает
+        // ширина отслеживаемой картинки в системе координат якоря MindAR.
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 1 / maxDim;
+
+        model.scale.setScalar(scale);
+        model.position.sub(center.multiplyScalar(scale));
+
+        // Плоскость картинки — это XY, а +Z смотрит от неё к зрителю.
+        // glTF отдаёт модель осью Y вверх, поэтому поворачиваем, чтобы она
+        // стояла НАД открыткой, а не лежала на ней плашмя.
+        const pivot = new THREE.Group();
+        pivot.rotation.x = Math.PI / 2;
+        pivot.add(model);
+
+        anchor.group.add(pivot);
+        log(`модель добавлена (габариты ${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)}, масштаб ${scale.toFixed(4)})`);
+      },
+      (progress) => {
+        if (progress.total) {
+          const mb = (progress.loaded / 1048576).toFixed(1);
+          const totalMb = (progress.total / 1048576).toFixed(1);
+          log(`модель: ${mb} / ${totalMb} МБ`);
+        }
+      },
+      (error) => {
+        log("не удалось загрузить модель: " + (error && error.message ? error.message : error), true);
+      }
+    );
+
+    const start = async () => {
+      try {
+        log("запускаю камеру и трекинг ...");
+        await mindarThree.start();
+        log("камера запущена, трекинг активен");
+
+        // Кадр может быть чёрным по двум причинам: поток пустой либо видео не
+        // видно. Выясняем, что именно, по фактическому состоянию элемента.
+        setTimeout(() => {
+          const video = document.querySelector("#ar-container video");
+          if (!video) {
+            log("видеоэлемент не найден в DOM", true);
+            return;
+          }
+          log(`видео: ${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}, paused=${video.paused}`);
+
+          const rect = video.getBoundingClientRect();
+          const style = getComputedStyle(video);
+          log(`на экране: ${Math.round(rect.width)}x${Math.round(rect.height)}, visibility=${style.visibility}, opacity=${style.opacity}, z-index=${style.zIndex}`);
+
+          const track = video.srcObject && video.srcObject.getVideoTracks
+            ? video.srcObject.getVideoTracks()[0]
+            : null;
+          if (track) {
+            const s = track.getSettings();
+            log(`камера: "${track.label}" ${s.width}x${s.height}, enabled=${track.enabled}, muted=${track.muted}, state=${track.readyState}`);
+          } else {
+            log("видеопоток не привязан к элементу", true);
+          }
+        }, 2500);
+        renderer.setAnimationLoop(() => {
+          renderer.render(scene, camera);
+        });
+      } catch (e) {
+        log("СТАРТ НЕ УДАЛСЯ: " + (e && e.message ? e.message : e), true);
+      }
+    };
+
+    start();
+  </script>
+</body>
+</html>
