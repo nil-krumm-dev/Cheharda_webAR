@@ -68,12 +68,65 @@
     }
 
     #status .err { color: #f77; }
+
+    /* iOS не даёт доступ к камере без явного действия пользователя,
+       поэтому запуск всегда идёт по нажатию. */
+    #gate {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      background: #101410;
+      color: #fff;
+      text-align: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    #gate h1 {
+      margin: 0;
+      font-size: 21px;
+      font-weight: 600;
+    }
+
+    #gate p {
+      margin: 0;
+      max-width: 320px;
+      font-size: 15px;
+      line-height: 1.5;
+      opacity: 0.75;
+    }
+
+    #start-btn {
+      margin-top: 8px;
+      padding: 16px 34px;
+      font-size: 17px;
+      font-weight: 600;
+      color: #10240f;
+      background: #7cbf58;
+      border: none;
+      border-radius: 30px;
+      cursor: pointer;
+      -webkit-appearance: none;
+    }
+
+    #start-btn:disabled { opacity: 0.5; }
   </style>
 </head>
 <body>
   <div id="ar-container"></div>
   <div id="hint"><span>Наведите камеру на открытку</span></div>
   <div id="status"></div>
+
+  <div id="gate">
+    <h1>Чехарда AR</h1>
+    <p>Нажмите кнопку и разрешите доступ к камере, затем наведите её на картинку.</p>
+    <button id="start-btn" type="button">Запустить камеру</button>
+  </div>
 
   <script>
     // Диагностика должна работать даже если модуль ниже не загрузился вовсе.
@@ -205,8 +258,43 @@
       }
     );
 
+    // Пробный запрос камеры: MindAR при отказе отдаёт невнятную ошибку,
+    // а здесь виден точный код — по нему понятно, что чинить.
+    const probeCamera = async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        log("getUserMedia недоступен в этом браузере", true);
+        return false;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+        });
+        const track = stream.getVideoTracks()[0];
+        log(`доступ к камере получен: "${track ? track.label : "?"}"`);
+        stream.getTracks().forEach((t) => t.stop()); // отдаём камеру MindAR
+        return true;
+      } catch (e) {
+        const name = e && e.name ? e.name : "?";
+        log(`КАМЕРА НЕДОСТУПНА [${name}]: ${e && e.message ? e.message : e}`, true);
+        if (name === "NotAllowedError") {
+          log("доступ запрещён. iOS: Настройки → Safari → Камера → Спросить;", true);
+          log("а также Настройки → Экранное время → Контент и конфиденциальность → Камера", true);
+        } else if (name === "NotFoundError") {
+          log("камера в системе не найдена", true);
+        } else if (name === "NotReadableError") {
+          log("камеру занял другой процесс — закройте прочие приложения", true);
+        }
+        return false;
+      }
+    };
+
     const start = async () => {
       try {
+        log(`браузер: ${navigator.userAgent}`);
+        log(`защищённый контекст: ${window.isSecureContext}`);
+
+        if (!(await probeCamera())) return;
+
         log("запускаю камеру и трекинг ...");
         await mindarThree.start();
         log("камера запущена, трекинг активен");
@@ -243,7 +331,17 @@
       }
     };
 
-    start();
+    // Запуск строго по нажатию: iOS не выдаёт разрешение на камеру
+    // при автоматическом обращении к ней во время загрузки страницы.
+    const gate = document.getElementById("gate");
+    const startBtn = document.getElementById("start-btn");
+
+    startBtn.addEventListener("click", async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = "Запускаю ...";
+      gate.style.display = "none";
+      await start();
+    });
   </script>
 </body>
 </html>
