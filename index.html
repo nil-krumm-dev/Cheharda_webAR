@@ -199,9 +199,9 @@
   </div>
 
   <div id="smooth-ctl" hidden>
-    <span id="smooth-val">0.15</span>
+    <span id="smooth-val">0.00</span>
     <div id="smooth-wrap">
-      <input id="smooth" type="range" min="0.03" max="1" step="0.01" value="0.15"
+      <input id="smooth" type="range" min="0" max="1" step="0.01" value="0"
              aria-label="Сглаживание" />
     </div>
     <span class="smooth-cap">сглаж.</span>
@@ -329,8 +329,16 @@
     holder.visible = false;
     scene.add(holder);
 
+    // Ползунок показывает СИЛУ сглаживания: 0 — его нет вовсе (модель ведёт
+    // себя ровно как без нашего слоя), 1 — максимальное.
+    // Внутри работаем долей приближения к цели за кадр: 1 — мгновенно, 0.03 —
+    // очень плавно. Связь степенная: шаг ползунка ощущается одинаково по всей
+    // шкале, тогда как при линейной верхняя половина почти не различалась бы.
+    const ALPHA_MIN = 0.03;
+    const toAlpha = (s) => (s <= 0 ? 1 : Math.pow(ALPHA_MIN, s));
+
     let smoothing = parseFloat(params.get("smooth"));
-    if (!(smoothing > 0 && smoothing <= 1)) smoothing = 0.15;
+    if (!(smoothing >= 0 && smoothing <= 1)) smoothing = 0;
 
     const smoothCtl = document.getElementById("smooth-ctl");
     const smoothInput = document.getElementById("smooth");
@@ -499,17 +507,19 @@
           if (g.visible) {
             g.matrix.decompose(pos, quat, scl);
 
-            if (!locked) {
-              // Первый кадр после захвата ставим точно, иначе модель
-              // заметно подползала бы к цели издалека.
+            const alpha = toAlpha(smoothing);
+
+            // На нуле и в первый кадр после захвата ставим точно: иначе модель
+            // заметно подползала бы к цели издалека.
+            if (!locked || alpha >= 1) {
               holder.position.copy(pos);
               holder.quaternion.copy(quat);
               holder.scale.copy(scl);
               locked = true;
             } else {
-              holder.position.lerp(pos, smoothing);
-              holder.quaternion.slerp(quat, smoothing);
-              holder.scale.lerp(scl, smoothing);
+              holder.position.lerp(pos, alpha);
+              holder.quaternion.slerp(quat, alpha);
+              holder.scale.lerp(scl, alpha);
             }
             holder.visible = true;
           } else {
