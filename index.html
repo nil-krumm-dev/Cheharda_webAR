@@ -96,12 +96,24 @@
       font-weight: 600;
     }
 
-    #gate p {
+    #gate-steps {
       margin: 0;
+      padding-left: 22px;
       max-width: 320px;
+      text-align: left;
       font-size: 15px;
       line-height: 1.5;
-      opacity: 0.75;
+      opacity: 0.85;
+    }
+
+    #gate-steps li + li { margin-top: 6px; }
+
+    #gate-note {
+      margin: 0;
+      max-width: 320px;
+      font-size: 13px;
+      line-height: 1.45;
+      opacity: 0.55;
     }
 
     #start-btn {
@@ -127,8 +139,13 @@
 
   <div id="gate">
     <h1>Чехарда AR</h1>
-    <p>Нажмите кнопку и разрешите доступ к камере, затем наведите её на картинку.</p>
+    <ol id="gate-steps">
+      <li>Нажмите кнопку ниже.</li>
+      <li>Браузер спросит доступ к камере — нажмите «Разрешить».</li>
+      <li>Наведите камеру на картинку целиком.</li>
+    </ol>
     <button id="start-btn" type="button">Запустить камеру</button>
+    <p id="gate-note">Без доступа к камере дополненная реальность не работает. Разрешение спрашивается один раз.</p>
   </div>
 
   <script>
