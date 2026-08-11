@@ -116,6 +116,43 @@
       opacity: 0.55;
     }
 
+    /* Вертикальный ползунок сбоку. Поворот через transform, а не
+       writing-mode: последний не понимают браузеры старше 2024 года. */
+    #smooth-ctl {
+      position: fixed;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 25;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 4px;
+      border-radius: 16px;
+      background: rgba(0, 0, 0, 0.35);
+      color: #fff;
+      font-family: monospace;
+      font-size: 11px;
+      user-select: none;
+    }
+
+    #smooth-wrap {
+      height: 150px;
+      width: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #smooth {
+      width: 145px;
+      transform: rotate(-90deg);
+      accent-color: #7cbf58;
+    }
+
+    .smooth-cap { opacity: 0.6; }
+
     #gate-warn {
       margin: 0;
       max-width: 320px;
@@ -159,6 +196,15 @@
     <button id="start-btn" type="button">Запустить камеру</button>
     <p id="gate-note">Без доступа к камере дополненная реальность не работает. Разрешение спрашивается один раз.</p>
     <p id="gate-warn" hidden></p>
+  </div>
+
+  <div id="smooth-ctl" hidden>
+    <span id="smooth-val">0.15</span>
+    <div id="smooth-wrap">
+      <input id="smooth" type="range" min="0.03" max="1" step="0.01" value="0.15"
+             aria-label="Сглаживание" />
+    </div>
+    <span class="smooth-cap">сглаж.</span>
   </div>
 
   <script>
@@ -247,13 +293,12 @@
     window.__moduleReady = true;
     log("библиотеки загружены (three + mindar)");
 
-    // Сглаживание дрожания (фильтр One Euro). Меньше cf — спокойнее картинка,
-    // но заметнее отставание при движении; меньше beta — сильнее сглаживание
-    // быстрых перемещений. Значения по умолчанию у MindAR: 0.001 и 1000.
-    // Подбираются глазами, поэтому вынесены в адрес: ?cf=0.0005&beta=300
+    // Штатный фильтр MindAR задаётся только при создании контроллера и на лету
+    // не меняется, поэтому оставляем его значения по умолчанию, а сглаживание
+    // регулируем своим слоем ниже — его сила меняется мгновенно.
     const params = new URLSearchParams(location.search);
-    const filterMinCF = parseFloat(params.get("cf")) || 0.0005;
-    const filterBeta = parseFloat(params.get("beta")) || 300;
+    const filterMinCF = parseFloat(params.get("cf")) || 0.001;
+    const filterBeta = parseFloat(params.get("beta")) || 1000;
 
     const mindarThree = new MindARThree({
       container: document.getElementById("ar-container"),
@@ -276,6 +321,27 @@
     scene.add(ambientLight, directionalLight);
 
     const anchor = mindarThree.addAnchor(0);
+
+    // Модель висит не на самом якоре, а на промежуточном узле, который каждый
+    // кадр плавно подтягивается к его положению. Так силу сглаживания можно
+    // менять на лету, чего штатный фильтр MindAR не позволяет.
+    const holder = new THREE.Group();
+    holder.visible = false;
+    scene.add(holder);
+
+    let smoothing = parseFloat(params.get("smooth"));
+    if (!(smoothing > 0 && smoothing <= 1)) smoothing = 0.15;
+
+    const smoothCtl = document.getElementById("smooth-ctl");
+    const smoothInput = document.getElementById("smooth");
+    const smoothVal = document.getElementById("smooth-val");
+
+    smoothInput.value = String(smoothing);
+    smoothVal.textContent = smoothing.toFixed(2);
+    smoothInput.addEventListener("input", () => {
+      smoothing = parseFloat(smoothInput.value);
+      smoothVal.textContent = smoothing.toFixed(2);
+    });
 
     anchor.onTargetFound = () => {
       log("ТАРГЕТ НАЙДЕН");
@@ -329,7 +395,8 @@
         pivot.rotation.x = Math.PI / 2;
         pivot.add(model);
 
-        anchor.group.add(pivot);
+        holder.add(pivot);
+        smoothCtl.hidden = false;
         hintText.textContent = "Наведите камеру на открытку";
         log(`модель добавлена (габариты ${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)}, масштаб ${scale.toFixed(4)})`);
       },
@@ -421,7 +488,35 @@
             log("видеопоток не привязан к элементу", true);
           }
         }, 2500);
+        const pos = new THREE.Vector3();
+        const quat = new THREE.Quaternion();
+        const scl = new THREE.Vector3();
+        let locked = false;
+
         renderer.setAnimationLoop(() => {
+          const g = anchor.group;
+
+          if (g.visible) {
+            g.matrix.decompose(pos, quat, scl);
+
+            if (!locked) {
+              // Первый кадр после захвата ставим точно, иначе модель
+              // заметно подползала бы к цели издалека.
+              holder.position.copy(pos);
+              holder.quaternion.copy(quat);
+              holder.scale.copy(scl);
+              locked = true;
+            } else {
+              holder.position.lerp(pos, smoothing);
+              holder.quaternion.slerp(quat, smoothing);
+              holder.scale.lerp(scl, smoothing);
+            }
+            holder.visible = true;
+          } else {
+            holder.visible = false;
+            locked = false;
+          }
+
           renderer.render(scene, camera);
         });
       } catch (e) {
