@@ -275,7 +275,12 @@
     };
 
     // Модель грузим параллельно со стартом AR: ждать её до запуска камеры незачем.
-    const modelFile = "./assets/model.glb";
+    // ?model=full — исходная плотность (1,92 млн треугольников),
+    // по умолчанию — прорежённая до ~500 тыс. для сравнения.
+    const modelFile =
+      new URLSearchParams(location.search).get("model") === "full"
+        ? "./assets/model.glb"
+        : "./assets/model-lite.glb";
 
     log("загружаю " + modelFile.replace("./assets/", "") + " ...");
 
