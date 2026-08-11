@@ -247,14 +247,26 @@
     window.__moduleReady = true;
     log("библиотеки загружены (three + mindar)");
 
+    // Сглаживание дрожания (фильтр One Euro). Меньше cf — спокойнее картинка,
+    // но заметнее отставание при движении; меньше beta — сильнее сглаживание
+    // быстрых перемещений. Значения по умолчанию у MindAR: 0.001 и 1000.
+    // Подбираются глазами, поэтому вынесены в адрес: ?cf=0.0005&beta=300
+    const params = new URLSearchParams(location.search);
+    const filterMinCF = parseFloat(params.get("cf")) || 0.0005;
+    const filterBeta = parseFloat(params.get("beta")) || 300;
+
     const mindarThree = new MindARThree({
       container: document.getElementById("ar-container"),
       imageTargetSrc: "./assets/targets.mind",
+      filterMinCF,
+      filterBeta,
       // Встроенные оверлеи MindAR затемняют кадр; своя подсказка нагляднее.
       uiLoading: "no",
       uiScanning: "no",
       uiError: "no",
     });
+
+    log(`сглаживание: cf=${filterMinCF}, beta=${filterBeta}`);
 
     const { renderer, scene, camera } = mindarThree;
 
@@ -278,7 +290,7 @@
     // ?model=full — исходная плотность (1,92 млн треугольников),
     // по умолчанию — прорежённая до ~500 тыс. для сравнения.
     const modelFile =
-      new URLSearchParams(location.search).get("model") === "full"
+      params.get("model") === "full"
         ? "./assets/model.glb"
         : "./assets/model-lite.glb";
 
